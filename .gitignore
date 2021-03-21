@@ -1,0 +1,5 @@
+android/MPCCrypto/.project
+android/MPCCrypto/.gradle/*
+python/__pycache__/*.pyc
+android/MPCCrypto/.settings/*
+libmpc_crypto.so

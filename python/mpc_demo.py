@@ -23,11 +23,50 @@ import argparse
 import socket
 import struct
 import datetime
+import hashlib
 
 import mpc_crypto
 
+import ecdsa
+import codecs
+
 CLIENT = 1
 SERVER = 2
+
+
+def public_to_address(public_key):
+    public_key_bytes = codecs.decode(public_key,'hex')
+    sha256_bpk_digest = hashlib.sha256(public_key_bytes).digest()
+    ripemd160_bpk = hashlib.new('ripemd160')
+    ripemd160_bpk.update(sha256_bpk_digest)
+    ripemd160_bpk_digest = ripemd160_bpk.digest()
+    ripemd160_bpk_hex = codecs.encode(ripemd160_bpk_digest,'hex')
+    network_byte = b'6f' #比特币测试网地址版本号
+    network_bitcoin_public_key = network_byte + ripemd160_bpk_hex
+    network_bitcoin_public_key_bytes = codecs.decode(network_bitcoin_public_key,'hex')
+    sha256_nbpk_digest = hashlib.sha256(network_bitcoin_public_key_bytes).digest()
+    sha256_2_nbpk_digest = hashlib.sha256(sha256_nbpk_digest).digest()
+    sha256_2_hex = codecs.encode(sha256_2_nbpk_digest,'hex')
+    checksum = sha256_2_hex[:8]
+    address_hex = (network_bitcoin_public_key + checksum).decode('utf-8')
+    wallet = base58(address_hex)
+    return wallet
+
+
+def base58(address_hex):
+    alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+    b58_string = ''
+    leading_zeros = len(address_hex) - len(address_hex.lstrip('0'))
+    address_int = int(address_hex,16)
+    while address_int > 0:
+        digit = address_int % 58
+        digit_char = alphabet[digit]
+        b58_string = digit_char + b58_string
+        address_int//=58
+    ones = leading_zeros//2
+    for one in range(ones):
+        b58_string = '1' + b58_string
+    return b58_string
 
 
 def perform_step(obj, inMsgBuf):
@@ -113,8 +152,11 @@ def run_sign(inShare, cryptoType):
     print(cryptoType + " signing...")
     if not args.data_file:
         sys.exit("Input data missing")
-    with open(args.data_file, "rb") as f:
-        inData = f.read()
+    with open(args.data_file, "r") as f:
+        filecontent = f.read()
+        inData = bytearray.fromhex(filecontent)
+        print(inData)
+        print(len(inData))
 
     if cryptoType == 'ECDSA':
         if len(inData) > 32:
@@ -161,6 +203,21 @@ def run_derive(inShare, cryptoType='BIP32'):
             return obj.exportShare()
 
 
+def run_getpubkey(inShare, cryptoType):
+    print("Getting public key...")
+
+    if cryptoType == 'ECDSA':
+        obj = mpc_crypto.Ecdsa(peer, inShare)
+    elif cryptoType == 'EDDSA':
+        obj = mpc_crypto.Eddsa(peer, inShare)
+    else:
+        sys.exit("getpubkey not supported for " + cryptoType)
+
+    with obj:
+        pk = obj.getPublic()
+    print("ok")
+    return pk
+
 def run_command(params):
     inStr = None
     if args.in_file:
@@ -178,6 +235,9 @@ def run_command(params):
     elif params.command == 'sign':
         out = run_sign(inStr, params.type)
         outFileDefault = params.type + '_signature'
+    elif params.command == 'getpubkey':
+        out = run_getpubkey(inStr, params.type)
+        outFileDefault = params.type + '_pubkey'        
     outputFile = args.out_file if args.out_file else outFileDefault + \
         '_' + str(peer) + '.dat'
     return out, outputFile
@@ -204,8 +264,13 @@ def run_server():
         out, outputFile = run_command(params)
 
     if params.command != 'sign':  # only client receives the signature
-        with open(outputFile, "wb") as f:
-            f.write(out)
+        with open(outputFile, "wb" if params.command != 'getpubkey' else "w") as f:
+            f.write(out if params.command != 'getpubkey' else out.hex())
+
+    if params.command == 'getpubkey':
+        print("btc testnet address ...")
+        print(public_to_address(out.hex()))
+
     clientsocket.close()
 
 
@@ -228,12 +293,12 @@ def run_client():
     if args.repeat > 1:
         tookStr += ' on average'
     print(tookStr)
-    with open(outputFile, "wb") as f:
-        f.write(out)
+    with open(outputFile, "wb" if args.command != 'getpubkey' else "w") as f:
+        f.write(out if args.command != 'getpubkey' else out.hex())
     clientsocket.close()
 
 
-commands = ['generate', 'import', 'sign', 'derive']
+commands = ['generate', 'import', 'sign', 'derive', 'getpubkey']
 types = ['EDDSA', 'ECDSA', 'BIP32', 'generic']
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                  conflict_handler='resolve',
