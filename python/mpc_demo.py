@@ -154,9 +154,7 @@ def run_sign(inShare, cryptoType):
         sys.exit("Input data missing")
     with open(args.data_file, "r") as f:
         filecontent = f.read()
-        inData = bytearray.fromhex(filecontent)
-        print(inData)
-        print(len(inData))
+        inData = bytes.fromhex(filecontent)
 
     if cryptoType == 'ECDSA':
         if len(inData) > 32:
@@ -172,6 +170,7 @@ def run_sign(inShare, cryptoType):
         exec_mpc_exchange(obj)
         sig = obj.getSignResult()
     print("ok")
+    print(len(sig))
     return sig
 
 
@@ -218,6 +217,32 @@ def run_getpubkey(inShare, cryptoType):
     print("ok")
     return pk
 
+
+def run_verify(inShare, cryptoType):
+    print("Verifying...")
+    if not args.data_file:
+        sys.exit("Input data missing")
+    with open(args.data_file, "r") as f:
+        filecontent = f.read()
+        inData = bytes.fromhex(filecontent)
+
+    if not args.sig_file:
+        sys.exit("Signature file missing")
+    with open(args.sig_file, "rb") as f:
+        sigData = f.read()
+
+    if cryptoType == 'ECDSA':
+        obj = mpc_crypto.Ecdsa(peer, inShare)
+    elif cryptoType == 'EDDSA':
+        obj = mpc_crypto.Eddsa(peer, inShare)
+    else:
+        sys.exit("verify not supported for " + cryptoType)
+
+    with obj:
+        obj.verify(inData, sigData)
+    print("ok")
+    return 1
+
 def run_command(params):
     inStr = None
     if args.in_file:
@@ -238,6 +263,9 @@ def run_command(params):
     elif params.command == 'getpubkey':
         out = run_getpubkey(inStr, params.type)
         outFileDefault = params.type + '_pubkey'        
+    elif params.command == 'verify':
+        out = run_verify(inStr, params.type) 
+        outFileDefault = params.type + '_verify'  
     outputFile = args.out_file if args.out_file else outFileDefault + \
         '_' + str(peer) + '.dat'
     return out, outputFile
@@ -263,7 +291,7 @@ def run_server():
         # print(params)
         out, outputFile = run_command(params)
 
-    if params.command != 'sign':  # only client receives the signature
+    if params.command != 'sign' and params.command != 'verify':  # only client receives the signature
         with open(outputFile, "wb" if params.command != 'getpubkey' else "w") as f:
             f.write(out if params.command != 'getpubkey' else out.hex())
 
@@ -293,12 +321,15 @@ def run_client():
     if args.repeat > 1:
         tookStr += ' on average'
     print(tookStr)
-    with open(outputFile, "wb" if args.command != 'getpubkey' else "w") as f:
-        f.write(out if args.command != 'getpubkey' else out.hex())
-    clientsocket.close()
 
+    if args.command != 'verify':
+        with open(outputFile, "wb" if args.command != 'getpubkey' else "w") as f:
+            f.write(out if args.command != 'getpubkey' else out.hex())
+        clientsocket.close()
+        if args.command == 'sign':
+            print("contents wrote to file ", outputFile, " :", out.hex())
 
-commands = ['generate', 'import', 'sign', 'derive', 'getpubkey']
+commands = ['generate', 'import', 'sign', 'derive', 'getpubkey', 'verify']
 types = ['EDDSA', 'ECDSA', 'BIP32', 'generic']
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                  conflict_handler='resolve',
@@ -313,6 +344,7 @@ parser.add_argument('-s', '--server', action='store_true',
 parser.add_argument('-o', '--out_file', help='Output file name')
 parser.add_argument('-i', '--in_file', help='Input file name')
 parser.add_argument('-d', '--data_file', help='Data file name')
+parser.add_argument('-g', '--sig_file', help='Signature file name')
 parser.add_argument('-c', '--command', choices=commands, help='MPC Operation')
 parser.add_argument('-t', '--type', choices=types, help='MPC Operation')
 parser.add_argument('--hardened', action='store_true',

@@ -412,6 +412,7 @@ def initEcdsaSign(peer, share, buf, refresh):
 def getEcdsaSignResult(ctx):
     out_size = c_int()
     test_rv(libmpc.MPCCrypto_getResultEcdsaSign(ctx, None, byref(out_size)))
+    print("out_size.value: " , out_size.value)
     sig = create_string_buffer(out_size.value)
     test_rv(libmpc.MPCCrypto_getResultEcdsaSign(ctx, sig, byref(out_size)))
     return sig.raw
