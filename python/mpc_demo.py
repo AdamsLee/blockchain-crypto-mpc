@@ -346,12 +346,18 @@ def run_server():
 
     if params.command == 'getpubkey':
         pubkeyhexstr = out.hex()
-        pubaddr = public_to_address(out.hex())
+        x = pubkeyhexstr[-128:-64]
+        print("btc pub key x: ", x)
+        y = pubkeyhexstr[-64:]
+        print("btc pub key y: ", y)
+        y_bytes = codecs.decode(y,'hex')
+        last = y_bytes[len(y_bytes)-1]
+        x = ("02" if last % 2 == 0 else "03") + x
+        print("pub key: ",x)
+        pubaddr = public_to_address(x)
         print("btc testnet address: ", pubaddr)
         bitcoin.SelectParams("testnet")
         print("btc testnet ScriptPubKey: ", CBitcoinAddress(pubaddr).to_scriptPubKey().hex())
-        print("btc pub key x: ", pubkeyhexstr[-128:-64])
-        print("btc pub key y: ", pubkeyhexstr[-64:])
 
     clientsocket.close()
 
