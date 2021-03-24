@@ -26,12 +26,62 @@ import datetime
 import hashlib
 
 import mpc_crypto
-
+import bitcoin
+from bitcoin.wallet import CBitcoinAddress
 import ecdsa
 import codecs
 
 CLIENT = 1
 SERVER = 2
+
+def parse_element(hex_str, offset, element_size):
+    """
+    :param hex_str: string to parse the element from.
+    :type hex_str: hex str
+    :param offset: initial position of the object inside the hex_str.
+    :type offset: int
+    :param element_size: size of the element to extract.
+    :type element_size: int
+    :return: The extracted element from the provided string, and the updated offset after extracting it.
+    :rtype tuple(str, int)
+    """
+
+    return hex_str[offset:offset+element_size], offset+element_size
+
+
+def dissect_signature(hex_sig):
+    """
+    Extracts the r, s and ht components from a Bitcoin ECDSA signature.
+    :param hex_sig: Signature in  hex format.
+    :type hex_sig: hex str
+    :return: r, s, t as a tuple.
+    :rtype: tuple(str, str, str)
+    """
+
+    offset = 0
+    # Check the sig contains at least the size and sequence marker
+    assert len(hex_sig) > 4, "Wrong signature format."
+    sequence, offset = parse_element(hex_sig, offset, 2)
+    # Check sequence marker is correct
+    assert sequence == '30', "Wrong sequence marker."
+    signature_length, offset = parse_element(hex_sig, offset, 2)
+    # Check the length of the remaining part matches the length of the signature + the length of the hashflag (1 byte)
+    assert len(hex_sig[offset:])/2 == int(signature_length, 16), "Wrong length."
+    # Get r
+    marker, offset = parse_element(hex_sig, offset, 2)
+    assert marker == '02', "Wrong r marker."
+    len_r, offset = parse_element(hex_sig, offset, 2)
+    len_r_int = int(len_r, 16) * 2   # Each byte represents 2 characters
+    r, offset = parse_element(hex_sig, offset, len_r_int)
+    # Get s
+    marker, offset = parse_element(hex_sig, offset, 2)
+    assert marker == '02', "Wrong s marker."
+    len_s, offset = parse_element(hex_sig, offset, 2)
+    len_s_int = int(len_s, 16) * 2  # Each byte represents 2 characters
+    s, offset = parse_element(hex_sig, offset, len_s_int)
+
+    return r, s
+
 
 
 def public_to_address(public_key):
@@ -170,7 +220,6 @@ def run_sign(inShare, cryptoType):
         exec_mpc_exchange(obj)
         sig = obj.getSignResult()
     print("ok")
-    print(len(sig))
     return sig
 
 
@@ -296,8 +345,13 @@ def run_server():
             f.write(out if params.command != 'getpubkey' else out.hex())
 
     if params.command == 'getpubkey':
-        print("btc testnet address ...")
-        print(public_to_address(out.hex()))
+        pubkeyhexstr = out.hex()
+        pubaddr = public_to_address(out.hex())
+        print("btc testnet address: ", pubaddr)
+        bitcoin.SelectParams("testnet")
+        print("btc testnet ScriptPubKey: ", CBitcoinAddress(pubaddr).to_scriptPubKey().hex())
+        print("btc pub key x: ", pubkeyhexstr[-128:-64])
+        print("btc pub key y: ", pubkeyhexstr[-64:])
 
     clientsocket.close()
 
@@ -328,6 +382,11 @@ def run_client():
         clientsocket.close()
         if args.command == 'sign':
             print("contents wrote to file ", outputFile, " :", out.hex())
+            example_sig = out.hex()
+            r, s = dissect_signature(example_sig)
+            print("r: %s\ns: %s\n" % (r, s))
+            if int(s,16) > int("007FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0",16):
+                print("large! please try again")
 
 commands = ['generate', 'import', 'sign', 'derive', 'getpubkey', 'verify']
 types = ['EDDSA', 'ECDSA', 'BIP32', 'generic']
